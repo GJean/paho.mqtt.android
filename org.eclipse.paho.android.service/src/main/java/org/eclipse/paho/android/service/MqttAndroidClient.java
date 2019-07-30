@@ -22,6 +22,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
@@ -321,7 +322,13 @@ public class MqttAndroidClient extends BroadcastReceiver implements IMqttAsyncCl
         if (mqttService == null) { // First time - must bind to the service
             Intent serviceStartIntent = new Intent();
             serviceStartIntent.setClassName(myContext, SERVICE_NAME);
-            Object service = myContext.startService(serviceStartIntent);
+            Object service;
+            if (Build.VERSION.SDK_INT >= 26) {
+                service = myContext.startForegroundService(serviceStartIntent);
+            } else {
+                // Pre-O behavior.
+                service = myContext.startService(serviceStartIntent);
+            }
             if (service == null) {
                 IMqttActionListener listener = token.getActionCallback();
                 if (listener != null) {
@@ -354,6 +361,72 @@ public class MqttAndroidClient extends BroadcastReceiver implements IMqttAsyncCl
 
         return token;
     }
+
+    public IMqttToken connectWithForegroundService(MqttConnectOptions options, ForegroundNotifcationOptions notifOptions) {
+
+        IMqttToken token = new MqttTokenAndroid(this, null, null);
+
+        connectOptions = options;
+        connectToken = token;
+
+        if (notifOptions == null) {
+            notifOptions = new ForegroundNotifcationOptions();
+            notifOptions.setContentTitle("Mqtt Service");
+            notifOptions.setContentText("Mqtt service is run");
+            notifOptions.setSmallIcon(androidx.core.R.drawable.notification_icon_background);
+        }
+
+        /*
+         * The actual connection depends on the service, which we start and bind
+         * to here, but which we can't actually use until the serviceConnection
+         * onServiceConnected() method has run (asynchronously), so the
+         * connection itself takes place in the onServiceConnected() method
+         */
+        if (mqttService == null) { // First time - must bind to the service
+            Intent serviceStartIntent = new Intent();
+            serviceStartIntent.setClassName(myContext, SERVICE_NAME);
+            serviceStartIntent.putExtra(ForegroundNotifcationOptions.PARCELABLE_NAME, notifOptions);
+            Object service;
+            if (Build.VERSION.SDK_INT >= 26) {
+                service = myContext.startForegroundService(serviceStartIntent);
+            } else {
+                // Pre-O behavior.
+                service = myContext.startService(serviceStartIntent);
+            }
+            if (service == null) {
+                IMqttActionListener listener = token.getActionCallback();
+                if (listener != null) {
+                    listener.onFailure(token, new RuntimeException("cannot start service " + SERVICE_NAME));
+                }
+            }
+
+            // We bind with BIND_SERVICE_FLAG (0), leaving us the manage the lifecycle
+            // until the last time it is stopped by a call to stopService()
+            myContext.bindService(serviceStartIntent, serviceConnection, Context.BIND_AUTO_CREATE);
+
+            if (!receiverRegistered) {
+                registerReceiver(this);
+            }
+        } else {
+            pool.execute(new Runnable() {
+
+                @Override
+                public void run() {
+                    doConnect();
+
+                    //Register receiver to show shoulder tap.
+                    if (!receiverRegistered) {
+                        registerReceiver(MqttAndroidClient.this);
+                    }
+                }
+
+            });
+        }
+
+        return token;
+    }
+
+
 
     private void registerReceiver(BroadcastReceiver receiver) {
         IntentFilter filter = new IntentFilter();
@@ -1028,6 +1101,11 @@ public class MqttAndroidClient extends BroadcastReceiver implements IMqttAsyncCl
         return token;
     }
 
+    @Override
+    public boolean removeMessage(IMqttDeliveryToken token) throws MqttException {
+        return true;
+    }
+
     /**
      * Returns the delivery tokens for any outstanding publish operations.
      * <p>
@@ -1174,6 +1252,11 @@ public class MqttAndroidClient extends BroadcastReceiver implements IMqttAsyncCl
 
     public void setManualAcks(boolean manualAcks) {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reconnect() throws MqttException {
+        mqttService.reconnect();
     }
 
     /**

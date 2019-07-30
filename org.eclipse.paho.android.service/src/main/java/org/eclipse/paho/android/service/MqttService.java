@@ -16,11 +16,15 @@
 package org.eclipse.paho.android.service;
 
 import android.annotation.SuppressLint;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Build;
@@ -347,7 +351,7 @@ public class MqttService extends Service implements MqttTraceHandler {
         client.disconnect(invocationContext, activityToken);
         connections.remove(clientHandle);
 
-
+        stopForeground(true);
         // the activity has finished using us, so we can stop the service
         // the activities are bound with BIND_AUTO_CREATE, so the service will
         // remain around until the last activity disconnects
@@ -570,7 +574,7 @@ public class MqttService extends Service implements MqttTraceHandler {
         if (this.messageStore != null) {
             this.messageStore.close();
         }
-
+        stopForeground(true);
         super.onDestroy();
     }
 
@@ -592,6 +596,30 @@ public class MqttService extends Service implements MqttTraceHandler {
      */
     @Override
     public int onStartCommand(final Intent intent, int flags, final int startId) {
+        ForegroundNotifcationOptions notifOptions = intent.getParcelableExtra(ForegroundNotifcationOptions.PARCELABLE_NAME);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && notifOptions != null) {
+            String channelId = "001";
+            String channelName = "mqttService";
+            NotificationChannel channel = new NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_NONE);
+            channel.setLightColor(Color.BLUE);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            manager.createNotificationChannel(channel);
+            Notification notification;
+
+            notification = new Notification.Builder(getApplicationContext(), channelId)
+                    .setOngoing(true)
+                    .setSmallIcon(notifOptions.getSmallIcon())
+                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .setContentTitle(notifOptions.getContentTitle())
+                    .setContentText(notifOptions.getContentText())
+                    .build();
+
+            startForeground(101, notification);
+
+        } else {
+            startForeground(101, new Notification());
+        }
         // run till explicitly stopped, restart when
         // process restarted
         registerBroadcastReceivers();
