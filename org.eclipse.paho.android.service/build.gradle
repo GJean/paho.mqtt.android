@@ -8,7 +8,7 @@ android {
     defaultConfig {
         minSdkVersion 14
         // TODO switch to 26 needs more work https://developer.android.com/about/versions/oreo/background.html
-        targetSdkVersion 24
+        targetSdkVersion 29
 
         testApplicationId "org.eclipse.paho.android.service.test"
     }
@@ -16,6 +16,9 @@ android {
     lintOptions {
         abortOnError false
     }
+
+    useLibrary 'android.test.runner'
+    useLibrary 'android.test.base'
 }
 
 repositories {
@@ -24,17 +27,19 @@ repositories {
 
 dependencies {
     api "org.eclipse.paho:org.eclipse.paho.client.mqttv3:${rootProject.ext.clientVersion}"
-    implementation "com.android.support:support-v4:${rootProject.ext.supportLibVersion}"
+    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
 }
 
 android.libraryVariants.all { variant ->
     task("generate${variant.name}Javadoc", type: Javadoc) {
+        doFirst {
+            ext.androidJar =
+                    "${android.sdkDirectory}/platforms/${android.compileSdkVersion}/android.jar"
+            classpath = files(variant.javaCompile.classpath.files) + files(ext.androidJar)
+        }
         title = "$name $version API"
         description "Generates Javadoc for $variant.name."
         source = variant.javaCompile.source
-        ext.androidJar =
-                "${android.sdkDirectory}/platforms/${android.compileSdkVersion}/android.jar"
-        classpath = files(variant.javaCompile.classpath.files) + files(ext.androidJar)
         options.links("http://docs.oracle.com/javase/7/docs/api/")
         options.links("http://d.android.com/reference/")
         exclude '**/BuildConfig.java'
@@ -93,9 +98,4 @@ publishing {
             }
         }
     }
-}
-
-
-assemble.doLast {
-    renameReleaseAAR.execute()
 }
